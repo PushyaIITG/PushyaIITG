@@ -1,0 +1,360 @@
+#include <Arduino.h>
+#include <ctype.h>
+
+
+#define MAX_EXPRESSION_LENGTH 100
+
+// Global variable to store the postfix expression
+char postfixExpression[MAX_EXPRESSION_LENGTH * 2] = "";
+
+// Pin assignments (adjust according to your hardware)
+const int firstOperandWholeNumberPins[4] = {2, 3, 4, 5};  // 4 pins for the whole number part of the first operand
+const int firstOperandDecimalPins[4] = {6, 7, 8, 9};     // 4 pins for the decimal part of the first operand
+const int operandWholeNumberPins[4] = {10, 11, 12, 13};   // 4 pins for the whole number part of each operand
+const int operandDecimalPins[4] = {14, 15, 16, 17};       // 4 pins for the decimal part of each operand
+const int operatorPins[4] = {18, 19, 20, 21};             // Pins for operators (+, -, *, ^)
+
+// Function prototypes
+void writeDigit(int value, const int wholeNumberPins[4], const int decimalPins[4]);
+void writeOperator(char operatorValue);
+void resetOperandPins(const int wholeNumberPins[4], const int decimalPins[4]);
+void infToPost(const char* infixExpression);
+
+int readOperand(int& currentIndex) {
+    int wholeNumber = 0;
+    int decimal = 0;
+    bool hasDecimal = false;
+
+    while (currentIndex < strlen(postfixExpression) && postfixExpression[currentIndex] != ';') {
+        if (isdigit(postfixExpression[currentIndex])) {
+            int value = postfixExpression[currentIndex] - '0';
+            if (!hasDecimal) {
+                wholeNumber = (wholeNumber * 10) + value;
+            } else {
+                decimal = (decimal * 10) + value;
+            }
+        } else if (postfixExpression[currentIndex] == '.') {
+            hasDecimal = true;
+        }
+        currentIndex++;
+    }
+
+    // Move past the ';'
+    currentIndex++;
+
+    // Combine whole and decimal parts (you may adjust this based on your requirements)
+    int result = wholeNumber * 10 + decimal;
+
+    return result;
+}
+
+void processPostfix() {
+    int currentIndex = 0;
+    double operandStack[10]; // Stack to store operands
+    int stackTop = -1; // Initialize stack top index
+    // char updatedExpression[MAX_EXPRESSION_LENGTH * 2]; // Updated expression
+
+    // Loop until the end of the expression
+    while (postfixExpression[currentIndex] != '\0') {
+      
+        // Read the current character
+        char currentChar = postfixExpression[currentIndex];
+
+        // Skip spaces or semicolons
+        if (currentChar == ' ' || currentChar == ';' || currentChar == ':') {
+            currentIndex++;
+            continue;
+        }
+        if (isdigit(currentChar)) { // If current character is an operand
+            // Read the operand from the expression
+            int operand = 0;
+            while (isdigit(postfixExpression[currentIndex])) {
+                operand = operand * 10 + (postfixExpression[currentIndex] - '0');
+                currentIndex++;
+            }
+
+         if(postfixExpression[currentIndex]  == '.'){
+
+         while(postfixExpression[currentIndex] != ';'){
+           currentIndex++;
+            }
+               }
+
+            stackTop++;
+            operandStack[stackTop] = operand;
+        } else { // If current character is an operator
+            
+            // Pop the top two operands from the stack
+            if(stackTop <= 0){
+              break;
+            }
+            
+            int operand1 = operandStack[stackTop];
+            stackTop--;
+            int operand2 = operandStack[stackTop];
+            stackTop--;
+             Serial.print("operand1 ");
+            Serial.println(operand1);
+             Serial.print("operand2 ");
+            Serial.println(operand2);
+            Serial.print("operator ");
+            Serial.println(postfixExpression[currentIndex]);    
+
+            // Load operands into pins
+            writeDigit(operand1, firstOperandWholeNumberPins, firstOperandDecimalPins, true);
+            writeDigit(operand2, operandWholeNumberPins, operandDecimalPins, false);
+          delay(500);
+            //Select Multiplexer Pins
+            double Re;
+          if(postfixExpression[currentIndex]=='+'){
+            Re = analogRead(A0);
+            }
+          else if (postfixExpression[currentIndex]=='-'){
+              Re = analogRead(A1);
+          }
+          else if (postfixExpression[currentIndex]== '*'){
+              Re = analogRead(A2);
+          }
+          else if (postfixExpression[currentIndex]=='^'){
+              Re = analogRead(A3);
+          }
+
+          Serial.println(Re);
+          double Res = (Re/1023)*5;//to protect just in case uf output is more than 5 volts as output
+           double CurrentOutput = (Res*16)/5;
+           Serial.println(CurrentOutput);
+
+            stackTop++;
+            operandStack[stackTop]=CurrentOutput;
+            delay(500);
+
+        }
+
+        // Move to the next character in the expression
+        currentIndex++;
+    }
+    double FinalOutput = operandStack[stackTop];
+    Serial.print("Final Output: ");
+    Serial.println(FinalOutput);
+
+    
+   
+}
+
+
+// Reset operand pins (excluding the first operand)
+void resetOperandPins(const int wholeNumberPins[4], const int decimalPins[4])
+{
+    for (int i = 0; i < 4; i++)
+    {
+        digitalWrite(wholeNumberPins[i], LOW);
+        digitalWrite(decimalPins[i], LOW);
+    }
+}
+// Write digit value to pins
+void writeDigit(int value, const int wholeNumberPins[4], const int decimalPins[4], bool isFirstOperand)
+{
+    for (int i = 0; i < 4; i++)
+    {
+        int digit = (value >> i) & 0b1;
+        // Write the digit value to the corresponding pin for the whole number
+        if (isFirstOperand) {
+            digitalWrite(firstOperandWholeNumberPins[i], digit);
+             Serial.println("loading first:");
+
+        } else {
+            digitalWrite(operandWholeNumberPins[i], digit);
+            Serial.println("loading second:");
+        }
+    }
+
+    // Extract and write each digit using bit shifting for the decimal
+    for (int i = 0; i < 4; i++)
+        // Write the digit value to the corresponding pin for the decimal
+        {
+           int digit = (value >> i) & 0b1;
+        if (isFirstOperand) {
+            digitalWrite(firstOperandDecimalPins[i], digit);
+            
+        } else {
+            digitalWrite(decimalPins[i], digit);
+                        
+        }
+    }
+}
+  
+
+void controlPinBasedOnOperator(char operatorValue) {
+  
+    
+    // Map operator to pin index
+    switch (operatorValue) {
+        case '+':
+            digitalWrite(operatorPins[0], HIGH); 
+            digitalWrite(operatorPins[1], HIGH); 
+            digitalWrite(operatorPins[2], LOW); 
+            digitalWrite(operatorPins[3], LOW); 
+            break;
+        case '-':
+              digitalWrite(operatorPins[0], HIGH); 
+            digitalWrite(operatorPins[1], LOW); 
+            digitalWrite(operatorPins[2], LOW); 
+            digitalWrite(operatorPins[3], LOW); 
+            
+            break;
+        case '*':
+             digitalWrite(operatorPins[0], LOW); 
+            digitalWrite(operatorPins[1], LOW); 
+            digitalWrite(operatorPins[2], HIGH); 
+            digitalWrite(operatorPins[3], LOW); 
+            break;
+        case '^':
+             digitalWrite(operatorPins[0], HIGH); 
+            digitalWrite(operatorPins[1], HIGH); 
+            digitalWrite(operatorPins[2], HIGH); 
+            digitalWrite(operatorPins[3], LOW); 
+            break;
+    
+           
+    }
+    
+
+
+         Serial.println("loading operator :");
+    
+}
+
+
+
+
+void setup()
+{
+    // Initialization code if needed
+    Serial.begin(9600);
+
+    // Setup pins as OUTPUT
+    for (int i = 0; i < 4; i++)
+    {
+        pinMode(firstOperandWholeNumberPins[i], OUTPUT);
+        pinMode(firstOperandDecimalPins[i], OUTPUT);
+        pinMode(operandWholeNumberPins[i], OUTPUT);
+        pinMode(operandDecimalPins[i], OUTPUT);
+    }
+    for (int i = 0; i < 4; i++)
+    {
+        pinMode(operatorPins[i], OUTPUT);
+    }
+    pinMode(A0, INPUT);
+    // for reading the final result from the output of the circuit
+}
+
+
+void loop()
+{
+    // Example usage
+    if (Serial.available() > 0) {
+        char signal = Serial.read();
+        if (signal == 'P') {
+            // Read the infix expression from Serial
+            while (Serial.available() == 0); // Wait for data
+            char input;
+            int index = 0;
+            while (true) {
+                if (Serial.available() > 0) {
+                    input = Serial.read();
+                    if (input == '\n') {
+                        postfixExpression[index] = '\0'; // Null-terminate the string
+                        break;
+                    }
+                    postfixExpression[index++] = input;
+                }
+            }
+
+            // Process the infix expression and convert to postfix
+            infToPost(postfixExpression);
+
+            // Process the postfix expression
+            processPostfix();
+           
+        // final output is displayed
+        }
+    }
+}
+
+// Function to convert infix expression to postfix
+int prec(char c) {
+    if (c == '^')
+        return 3;
+    else if (c == '/' || c == '*')
+        return 2;
+    else if (c == '+' || c == '-')
+        return 1;
+    else
+        return -1;
+}
+
+char associativity(char c) {
+    if (c == '^')
+        return 'R';
+    return 'L';
+}
+
+void infToPost(const char* infixExpression) {
+    char result[MAX_EXPRESSION_LENGTH * 2];
+    int resultIndex = 0;
+    int len = strlen(infixExpression);
+    char stack[MAX_EXPRESSION_LENGTH];
+    int stackIndex = -1;
+
+    bool lastWasOperand = false;
+
+    for (int i = 0; i < len; i++) {
+        char c = infixExpression[i];
+
+        if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9')) {
+            // Add the operand to the result
+            while ((c >= '0' && c <= '9') || c == '.') {
+                result[resultIndex++] = c;
+                i++;
+                c = infixExpression[i];
+            }
+            result[resultIndex++] = ';';
+            lastWasOperand = true;
+            i--;  // Move back one position to correctly process the next character in the loop
+        } else if (c == '(') {
+            stack[++stackIndex] = c;
+            lastWasOperand = false;
+        } else if (c == ')') {
+            while (stackIndex >= 0 && stack[stackIndex] != '(') {
+                result[resultIndex++] = stack[stackIndex--];
+            }
+            stackIndex--;
+            lastWasOperand = false;
+        } else {
+            // Add an operator to the result with a semicolon
+            while (stackIndex >= 0 && (prec(c) < prec(stack[stackIndex]) ||
+                                       (prec(c) == prec(stack[stackIndex]) && associativity(c) == 'L'))) {
+                result[resultIndex++] = stack[stackIndex--];
+                result[resultIndex++] = ';';  // Add a semicolon after each operator
+            }
+            stack[++stackIndex] = c;
+            lastWasOperand = false;
+        }
+    }
+
+    // Add a semicolon after the loop only if the last character was an operand and not the last character in the expression
+    if (lastWasOperand) {
+        result[resultIndex++] = ';';
+    }
+
+    while (stackIndex >= 0) {
+        result[resultIndex++] = stack[stackIndex--];
+        result[resultIndex++] = ';';  // Add a semicolon after each operator in the remaining stack
+    }
+
+    result[resultIndex] = '\0';
+
+    // Print the postfix expression
+    Serial.println(result);
+    strcpy(postfixExpression, result);
+}
